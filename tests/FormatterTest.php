@@ -8,6 +8,7 @@ use DateTimeImmutable;
 use JsonSerializable;
 use Monolog\Level;
 use Monolog\LogRecord;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 use Smartness\LaravelLogging\Formatters\StructuredJsonFormatter;
@@ -136,5 +137,45 @@ final class FormatterTest extends TestCase
     {
         $this->expectException(\InvalidArgumentException::class);
         $this->formatter(['max_line_bytes' => 100]);
+    }
+
+    #[DataProvider('sensitiveMessages')]
+    public function test_text_redaction_covers_separators_and_escaped_or_unclosed_quotes(string $message): void
+    {
+        $line = $this->formatter()->format($this->record($message));
+        self::assertStringNotContainsString('SYNTHETIC_SECRET', $line);
+        self::assertStringContainsString('[REDACTED]', $line);
+    }
+
+    public static function sensitiveMessages(): array
+    {
+        return [
+            ['api-key=SYNTHETIC_SECRET'],
+            ['API_Key=SYNTHETIC_SECRET'],
+            ['apiKey=SYNTHETIC_SECRET'],
+            ['a_p_i-k_e_y=SYNTHETIC_SECRET'],
+            ['request password="prefix\\"SYNTHETIC_SECRET" status=failed'],
+            ["request password='prefix\\'SYNTHETIC_SECRET' status=failed"],
+            ['request password="prefix\\" SYNTHETIC_SECRET'],
+            ["request password='prefix\\' SYNTHETIC_SECRET"],
+            ["request password=\"first\nSYNTHETIC_SECRET\""],
+        ];
+    }
+
+    public function test_text_redaction_preserves_non_sensitive_keys_and_following_fields(): void
+    {
+        $message = 'api-key-id=123 shipping=express password="prefix\\"SECRET" result=failed';
+        $data = json_decode($this->formatter()->format($this->record($message)), true);
+        self::assertSame('api-key-id=123 shipping=express password=[REDACTED] result=failed', $data['message']);
+    }
+
+    public function test_custom_sensitive_fields_extend_defaults_unless_replacement_is_explicit(): void
+    {
+        $record = $this->record(context: ['password' => 'PASSWORD', 'business_secret' => 'BUSINESS']);
+        $options = ['sensitive_fields' => ['business_secret']];
+        $extended = json_decode($this->formatter($options)->format($record), true)['context'];
+        self::assertSame(['password' => '[REDACTED]', 'business_secret' => '[REDACTED]'], $extended);
+        $replaced = json_decode($this->formatter($options + ['sensitive_fields_mode' => 'replace'])->format($record), true)['context'];
+        self::assertSame(['password' => 'PASSWORD', 'business_secret' => '[REDACTED]'], $replaced);
     }
 }

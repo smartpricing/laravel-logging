@@ -18,6 +18,7 @@ use Monolog\Handler\StreamHandler;
 use Smartness\LaravelLogging\Context\JobContext;
 use Smartness\LaravelLogging\Context\TraceContext;
 use Smartness\LaravelLogging\Http\CorrelateRequest;
+use Smartness\LaravelLogging\Support\Configuration;
 
 final class StructuredLoggingServiceProvider extends ServiceProvider
 {
@@ -35,6 +36,8 @@ final class StructuredLoggingServiceProvider extends ServiceProvider
         if (! $this->app['config']['structured-logging.enabled']) {
             return;
         }
+        // Validate outside LogManager::get(), which catches tap failures and writes plaintext.
+        Configuration::validate($this->app['config']['structured-logging']);
         $manager = $this->app->make('log');
         if (! $manager instanceof LogManager) {
             throw new LogicException('Structured logging requires the native Laravel LogManager. Disable any custom log service override before enabling it.');

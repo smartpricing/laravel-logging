@@ -19,12 +19,14 @@ final class SafeNormalizer
 
     public function __construct(private readonly array $options)
     {
-        $fields = $options['sensitive_fields'];
+        $fields = Configuration::sensitiveFields($options);
         $this->sensitive = array_fill_keys(array_map(self::canonicalKey(...), $fields), true);
         $patterns = [];
         foreach ($fields as $field) {
-            $patterns[] = preg_quote($field, '~');
-            $patterns[] = preg_quote(self::canonicalKey($field), '~');
+            $canonical = self::canonicalKey($field);
+            if ($canonical !== '') {
+                $patterns[] = '[-_]*'.implode('[-_]*', array_map(static fn ($char) => preg_quote($char, '~'), str_split($canonical))).'[-_]*';
+            }
         }
         $this->keyPattern = implode('|', array_unique($patterns));
     }
@@ -124,7 +126,11 @@ final class SafeNormalizer
 
         $value = preg_replace('~\b(Bearer|Basic)\s+[^\s,;]+~i', '$1 [REDACTED]', $value) ?? '[REDACTED]';
         if ($this->keyPattern !== '') {
-            $pattern = '~(?<![a-zA-Z0-9_])(["\']?(?:'.$this->keyPattern.')["\']?\s*[:=]\s*)(?:"[^"\r\n]*"|\'[^\'\r\n]*\'|[^\s&,;}\]]+)~i';
+            // Consume escaped delimiters and, for unclosed quotes, the rest of the value.
+            $quotedOrPlain = <<<'REGEX'
+"(?:\\(?:.|\z)|[^"\\])*(?:"|\z)|'(?:\\(?:.|\z)|[^'\\])*(?:'|\z)|[^\s&,;}\]]+
+REGEX;
+            $pattern = '~(?<![a-zA-Z0-9_.-])(["\']?(?:'.$this->keyPattern.')["\']?\s*[:=]\s*)(?:'.$quotedOrPlain.')~is';
             $value = preg_replace($pattern, '$1[REDACTED]', $value) ?? '[REDACTED]';
         }
 

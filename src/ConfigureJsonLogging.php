@@ -6,10 +6,10 @@ namespace Smartness\LaravelLogging;
 
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Log\Logger;
-use Monolog\Handler\FallbackGroupHandler;
 use Monolog\Handler\StreamHandler;
 use Monolog\Logger as MonologLogger;
 use Smartness\LaravelLogging\Formatters\StructuredJsonFormatter;
+use Smartness\LaravelLogging\Handlers\LevelAwareFallbackHandler;
 use Smartness\LaravelLogging\Processors\ContextProcessor;
 
 /** A Laravel tap: keep the native manager, channel routing and level thresholds. */
@@ -40,7 +40,7 @@ final class ConfigureJsonLogging
                 $fallback = new StreamHandler($options['fallback_path'], $handler->getLevel());
                 $fallback->setFormatter($formatter);
                 $fallback->pushProcessor($processor);
-                $handler = new FallbackGroupHandler([$handler, $fallback], $handler->getBubble());
+                $handler = new LevelAwareFallbackHandler([$handler, $fallback], $handler->getBubble());
             }
             $handlers[] = $handler;
         }

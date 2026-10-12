@@ -1,5 +1,7 @@
 <?php
 
+use Smartness\LaravelLogging\Support\Configuration;
+
 return [
     // Installation alone never changes an application's logging configuration.
     'enabled' => env('STRUCTURED_LOGGING_ENABLED', false),
@@ -21,13 +23,8 @@ return [
     'max_items' => 1000,
     'max_trace_frames' => 30,
 
-    // Matching ignores case, underscores and hyphens, but matches complete keys.
-    'sensitive_fields' => [
-        'password', 'password_confirmation', 'current_password', 'new_password',
-        'old_password', 'api_key', 'secret', 'client_secret', 'token',
-        'access_token', 'refresh_token', 'authorization', 'auth_token',
-        'channel_token', 'private_key', 'credentials', 'processorAcquirerCredentials',
-        'credit_card', 'card_number', 'cvv', 'ssn', 'social_security_number',
-        'pin', 'otp', 'verification_code', 'cookie', 'set-cookie',
-    ],
+    // Custom fields extend the built-in protection, including in previously published configs.
+    // Use 'replace' only to explicitly opt out of the built-in list.
+    'sensitive_fields_mode' => 'extend',
+    'sensitive_fields' => Configuration::SENSITIVE_FIELDS,
 ];

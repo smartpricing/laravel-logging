@@ -6,9 +6,9 @@ namespace Smartness\LaravelLogging\Formatters;
 
 use DateTimeImmutable;
 use DateTimeZone;
-use InvalidArgumentException;
 use Monolog\Formatter\FormatterInterface;
 use Monolog\LogRecord;
+use Smartness\LaravelLogging\Support\Configuration;
 use Smartness\LaravelLogging\Support\SafeNormalizer;
 
 final class StructuredJsonFormatter implements FormatterInterface
@@ -17,17 +17,7 @@ final class StructuredJsonFormatter implements FormatterInterface
 
     public function __construct(private readonly array $options, private readonly ?string $component = null)
     {
-        foreach (['max_line_bytes', 'max_context_bytes', 'max_string_bytes', 'max_depth', 'max_items', 'max_trace_frames'] as $key) {
-            if (! isset($options[$key]) || ! is_int($options[$key]) || $options[$key] < 1) {
-                throw new InvalidArgumentException("{$key} must be a positive integer.");
-            }
-        }
-        if ($options['max_line_bytes'] < 1024) {
-            throw new InvalidArgumentException('max_line_bytes must be at least 1024.');
-        }
-        if ($options['max_depth'] > 32) {
-            throw new InvalidArgumentException('max_depth must not exceed 32.');
-        }
+        Configuration::validate($options);
         $this->normalizer = new SafeNormalizer($options);
     }
 

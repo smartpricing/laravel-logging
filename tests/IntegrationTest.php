@@ -198,7 +198,7 @@ final class IntegrationTest extends TestCase
 
     private function job(string $id): Job
     {
-        $job = $this->createMock(Job::class);
+        $job = $this->createStub(Job::class);
         $job->method('getJobId')->willReturn($id);
         $job->method('getQueue')->willReturn('test-queue');
         $job->method('attempts')->willReturn(2);
@@ -278,5 +278,21 @@ final class IntegrationTest extends TestCase
         }
         Log::info('after');
         self::assertSame(['before', 'after'], array_column($this->entries(), 'message'));
+    }
+
+    public function test_filtered_non_bubbling_channel_does_not_block_later_stack_handlers(): void
+    {
+        $this->app['config']->set('logging.channels.critical', [
+            'driver' => 'single', 'path' => $this->directory.'/critical.log',
+            'level' => 'critical', 'bubble' => false,
+        ]);
+        $this->app['config']->set('structured-logging.channels', ['*']);
+        (new StructuredLoggingServiceProvider($this->app))->boot();
+        $stack = Log::stack(['file', 'critical', 'second']);
+        $stack->warning('pass the filtered channel');
+        $stack->critical('stop at the critical channel');
+        self::assertSame(['pass the filtered channel'], array_column($this->entries('second'), 'message'));
+        self::assertSame(['stop at the critical channel'], array_column($this->entries('critical'), 'message'));
+        self::assertCount(2, $this->entries());
     }
 }

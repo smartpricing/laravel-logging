@@ -1,7 +1,7 @@
 # Smartness Laravel Logging
 
-General-purpose structured JSON logging for Laravel 11 and 12 using the native
-Laravel LogManager and Monolog 3. Requires PHP 8.2 or later. Use it in HTTP APIs,
+General-purpose structured JSON logging for Laravel 11, 12 and 13 using the native
+Laravel LogManager and Monolog 3. Requires PHP 8.2 or later (8.3 for Laravel 13). Use it in HTTP APIs,
 web applications, Artisan commands and queue workers, without application-specific
 models, services or infrastructure.
 
@@ -21,6 +21,8 @@ composer require smartness/laravel-logging:^0.1
 ```
 
 No custom Composer repository or GitHub credentials are needed.
+
+Use version 0.1.3 or later for the redaction and stack-routing corrections.
 
 Laravel discovers the service provider automatically. Optionally publish config:
 
@@ -84,6 +86,14 @@ Then set `LOG_CHANNEL=stdout`. File-based applications can keep their existing
 `single` or `daily` channel. HTTP, queue and trace enrichment can each be disabled
 independently; CLI logging does not require an HTTP request or a queue connection.
 
+When enabled, the package validates its configuration at application boot, before
+Laravel resolves logging channels. Invalid bounds, option types or redaction modes
+stop startup with an explicit error. This prevents a bad formatter configuration
+from silently selecting Laravel's plaintext emergency logger. Keep package options
+fixed after boot; rebuild `config:cache` and restart workers when changing them.
+Errors in unrelated Laravel channel definitions or other packages' taps remain
+subject to Laravel's own emergency logging behavior.
+
 ## Use Laravel logging
 
 ```php
@@ -133,8 +143,22 @@ can omit optional fields to honor `max_line_bytes`.
 Known credential keys are replaced completely with `[REDACTED]`. Matching ignores
 case, underscores and hyphens but requires a complete key, so `api_key_id` and
 `shipping` remain useful. Configure `sensitive_fields` for your application's
-additional credential names. Arrays, plain objects, nested JSON strings, exception
-messages and known key/value and Bearer/Basic patterns in text are covered.
+additional credential names. By default, the list **extends** the built-in fields,
+including when an older published config overrides the list. For example:
+
+```php
+'sensitive_fields' => ['business_secret', 'integration_credentials'],
+'sensitive_fields_mode' => 'extend',
+```
+
+Set `sensitive_fields_mode` to `replace` only when deliberately replacing the
+entire built-in list. In that mode you must include every key you need to protect.
+Case, underscores and hyphens are ignored for both structured keys and textual
+assignments. Quoted values support escaped quotes and newlines; an unclosed quoted
+secret consumes the remainder of the string so a partial value cannot leak.
+
+Arrays, plain objects, nested JSON strings, exception messages and known key/value
+and Bearer/Basic patterns in text are covered.
 
 This is not a detector for arbitrary secrets in free text, custom encodings or
 unknown field names. Callers must avoid logging credentials. Malformed JSON-like
@@ -194,9 +218,27 @@ composer validate --strict
 
 Tests use Orchestra Testbench with real Laravel/Monolog channel routing and
 temporary streams. No database, Redis or Loki service is required. CI runs a
-PHP 8.2–8.4 / Laravel 11–12 compatibility matrix. Laravel 11 compatibility does not
-imply upstream security support; only its isolated test jobs permit installation
+PHP 8.2–8.5 / Laravel 11–13 compatibility matrix, respecting each framework's PHP
+requirements, plus minimum-dependency coverage. Laravel 11 compatibility does not
+imply upstream security support; only its isolated compatibility jobs permit installation
 of dependencies with advisories. Consumer security policies are unchanged.
+
+The application smoke tests install the package into a fresh Laravel application,
+publish and cache its configuration, and check CLI, synchronous queue jobs and
+successive HTTP requests. Pass a new disposable directory:
+
+```shell
+bash tests/smoke/install.sh /tmp/logging-app 13
+bash tests/smoke/loki.sh /tmp/logging-app
+```
+
+The second command requires Docker Compose and starts isolated Alloy and Loki
+containers, then removes them. It verifies real file collection, JSON queries,
+original timestamps, redaction and low-cardinality labels. The Alloy configuration
+in `tests/smoke/alloy.config` is an example for raw JSON log files. Container stdout
+collection additionally needs the appropriate Docker/CRI decoding stage. Adapt
+endpoints, authentication and discovery to your infrastructure before staging.
+This smoke test does not certify Octane or a production collector deployment.
 
 References: [Laravel logging](https://laravel.com/docs/11.x/logging),
 [Laravel packages](https://laravel.com/docs/11.x/packages), and
