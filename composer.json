@@ -12,6 +12,7 @@
     "require": {
         "php": "^8.2",
         "ext-json": "*",
+        "illuminate/container": "^11.0 || ^12.0 || ^13.0",
         "illuminate/contracts": "^11.0 || ^12.0 || ^13.0",
         "illuminate/http": "^11.0 || ^12.0 || ^13.0",
         "illuminate/log": "^11.0 || ^12.0 || ^13.0",
@@ -20,6 +21,7 @@
         "psr/log": "^3.0"
     },
     "require-dev": {
+        "laravel/octane": "^2.17",
         "orchestra/testbench": "^9.0 || ^10.0 || ^11.0",
         "phpunit/phpunit": "^10.5 || ^11.0 || ^12.0"
     },

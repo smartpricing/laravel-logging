@@ -22,10 +22,11 @@ final class JobContext
 
     public function begin(Job $job, string $connection): void
     {
+        $id = $job->getJobId();
         $this->jobs[spl_object_id($job)] = [
             'job' => $job,
             'metadata' => [
-                'job_id' => $job->getJobId(), 'queue' => $job->getQueue(),
+                'job_id' => $id === '' ? $job->uuid() : $id, 'queue' => $job->getQueue(),
                 'attempt' => $job->attempts(), 'connection' => $connection,
             ],
         ];
@@ -54,5 +55,6 @@ final class JobContext
     public function reset(): void
     {
         $this->jobs = [];
+        $this->exceptions = new WeakMap;
     }
 }

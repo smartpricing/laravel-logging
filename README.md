@@ -22,7 +22,8 @@ composer require smartness/laravel-logging:^0.1
 
 No custom Composer repository or GitHub credentials are needed.
 
-Use version 0.1.3 or later for the redaction and stack-routing corrections.
+Use version 0.1.4 or later for Octane lifecycle support, in addition to the
+redaction and stack-routing corrections in 0.1.3.
 
 Laravel discovers the service provider automatically. Optionally publish config:
 
@@ -107,8 +108,9 @@ Log::withContext(['tenant_id' => 456])->info('Import started');
 
 Use context for application-specific identifiers and timer durations. There is no
 replacement facade, timer log level or mutable channel selector. Native Laravel
-context APIs retain their semantics: the application remains responsible for the
-lifecycle of context it adds itself with `withContext()` or `shareContext()`.
+context APIs retain their semantics. Octane's standard listeners clear native
+`withContext()` and `shareContext()` state between operations. Other persistent
+worker integrations must manage the lifecycle of application-added context.
 
 ## JSON contract
 
@@ -125,7 +127,9 @@ lifecycle of context it adds itself with `withContext()` or `shareContext()`.
 - Job logs include job ID, queue, connection and attempt. Context resets on
   completion, failure and worker loop boundaries; nested synchronous jobs restore
   their parent. Exceptions reported after job events retain correlation through
-  a weak map keyed by the exception object.
+  a weak map keyed by the exception object, cleared at the next queue loop.
+  Synchronous jobs use their payload UUID when the queue driver has no job ID.
+  Jobs executed inside an HTTP request also retain that request's correlation.
 - If `open-telemetry/api` is installed and an active valid span exists, `trace_id`
   and `span_id` are included. The package never creates spans or exporters. Bind
   your own `Context\TraceContext` implementation for another tracing system.
@@ -186,10 +190,97 @@ logging the failure. Delivery is best effort; process termination or collector
 failures require infrastructure-level monitoring.
 
 The package retains Laravel's native manager and handler close/reset APIs, including
-compatibility with workers that forget channels before forking. Tests cover
-sequential workers and nested synchronous jobs. Octane/Swoole coroutine concurrency
-is not currently certified. Queue integrations must emit Laravel job lifecycle
-events to receive job metadata.
+compatibility with workers that forget channels before forking. Queue integrations
+must emit Laravel job lifecycle events to receive job metadata.
+
+## Laravel Octane
+
+Octane integration activates automatically when the enabled package receives
+Octane's lifecycle events. Octane remains optional; installing this package does
+not install Octane or change the application's server.
+
+Processors resolve the current container for every record instead of retaining
+the worker's original container. Each HTTP request, task and tick gets its own
+job context, including when a service provider warmed the logger before the first
+request. Failed operations are discarded with their sandbox. HTTP correlation
+stays available during exception reporting and request termination; tasks, ticks
+and the base worker do not inherit the last HTTP request. Normal Laravel routes
+also return `X-Request-Id` on exception responses. Octane's `Octane::route()`
+shortcuts bypass Laravel middleware and must add response headers themselves.
+
+Keep Octane's default preparation/reset listeners in `config/octane.php`, including
+`FlushLogContext` and `FlushMonologState`. They clear Laravel/Monolog context that
+the application or other packages add. Configure package options once at boot;
+rebuild the configuration cache and reload workers after configuration changes.
+An OpenTelemetry SDK must independently manage its active span's lifecycle.
+
+For container deployments with Octane, use a `php://stderr` stream channel:
+
+```dotenv
+STRUCTURED_LOGGING_ENABLED=true
+STRUCTURED_LOGGING_SERVICE=my-service
+LOG_CHANNEL=stderr
+```
+
+Laravel's skeleton already defines `stderr`. If yours does not:
+
+```php
+'stderr' => [
+    'driver' => 'monolog',
+    'handler' => \Monolog\Handler\StreamHandler::class,
+    'with' => ['stream' => 'php://stderr'],
+    'level' => env('LOG_LEVEL', 'info'),
+],
+```
+
+For FrankenPHP's Artisan launcher, explicitly select the native log output:
+
+```shell
+php artisan octane:frankenphp --host=0.0.0.0 --log-level=warn
+```
+
+That launcher consumes the child process's stdout without forwarding application
+records; its default console renderer can also reformat stderr. The explicit
+`--log-level` preserves raw stderr lines. RoadRunner [reserves worker stdout for its
+transport protocol](https://docs.roadrunner.dev/docs/error-codes/stdout-crc), so use
+stderr there too. Server/access/startup logs are separate
+from the package's application JSON schema; configure the collector accordingly.
+The package preserves configured destinations and does not silently reroute channels.
+
+Validation covers Octane 2.x's real `Worker` lifecycle on Laravel 11–13 and a real
+FrankenPHP server on Laravel 12/13, with two independent containers, sequential and
+concurrent clients, nested jobs, error recovery and worker reload. The common
+lifecycle is used by Octane's server adapters; Swoole and RoadRunner server binaries
+are not part of the integration matrix. Arbitrary user-created coroutines/fibers
+sharing mutable Laravel services are outside these guarantees.
+
+## Kubernetes and multiple replicas
+
+Every pod writes independently to its container's stdout/stderr (stderr for Octane
+as above). There is no package-level buffer, shared log file, distributed lock or
+direct Loki client. Increasing replicas does not require a shared logger service.
+Use the same `service` and `environment` across replicas of the same application;
+`hostname` and `process_id` help identify the emitting instance inside each record.
+A process ID alone is not globally unique.
+
+The collector should decode the container runtime's Docker/CRI envelope before
+parsing application JSON and attach cluster, namespace, workload, pod and container
+identity from Kubernetes discovery. Keep a small set of stable index labels such
+as service, environment, cluster and namespace. Keep ephemeral pod names, request
+IDs, trace IDs, job IDs and user IDs in the body or structured metadata to avoid
+excessive Loki stream cardinality. JSON fields do not become index labels automatically.
+
+Generated request IDs use 128 random bits; they do not depend on a per-pod counter.
+For a request spanning services, the ingress/HTTP client must propagate a validated
+`X-Request-Id`, or your tracing instrumentation must propagate trace context.
+The package does not automatically propagate context into outgoing HTTP requests
+or asynchronous job payloads. It only reads an active trace and the current job.
+
+Container collection, retries, backpressure, retention and draining during pod
+termination belong to the runtime/collector. Immediate writes reduce the package's
+shutdown exposure but do not guarantee delivery after SIGKILL or a collector outage.
+Validate your actual Kubernetes collector and existing dashboards before rollout;
+the container smoke test is not a live-cluster certification.
 
 ## Adopt in an existing Laravel application
 
@@ -230,6 +321,7 @@ successive HTTP requests. Pass a new disposable directory:
 ```shell
 bash tests/smoke/install.sh /tmp/logging-app 13
 bash tests/smoke/loki.sh /tmp/logging-app
+bash tests/octane/run.sh /tmp/logging-app
 ```
 
 The second command requires Docker Compose and starts isolated Alloy and Loki
@@ -238,10 +330,15 @@ original timestamps, redaction and low-cardinality labels. The Alloy configurati
 in `tests/smoke/alloy.config` is an example for raw JSON log files. Container stdout
 collection additionally needs the appropriate Docker/CRI decoding stage. Adapt
 endpoints, authentication and discovery to your infrastructure before staging.
-This smoke test does not certify Octane or a production collector deployment.
+The third command modifies that disposable application, installs Octane, and tests
+two FrankenPHP containers using stderr and cached configuration. It removes the
+containers and test image afterward. Neither smoke test accesses a production
+collector deployment.
 
 References: [Laravel logging](https://laravel.com/docs/11.x/logging),
 [Laravel packages](https://laravel.com/docs/11.x/packages), and
-[Loki labels](https://grafana.com/docs/loki/latest/get-started/labels/).
+[Loki labels](https://grafana.com/docs/loki/latest/get-started/labels/),
+[Octane lifecycle](https://laravel.com/docs/13.x/octane), and
+[Kubernetes logging](https://kubernetes.io/docs/concepts/cluster-administration/logging/).
 Keep request IDs, trace IDs and user IDs in the log body or structured metadata;
 use stable, low-cardinality stream labels in the collector.

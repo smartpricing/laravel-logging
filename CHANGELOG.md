@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.4
+
+- Resolve the active container per record and per queue event instead of capturing the worker's original application.
+- Isolate request and job context in each Octane HTTP/task/tick sandbox, including pre-warmed channels and failed operations.
+- Keep HTTP correlation during synchronous jobs and exception reporting; include request IDs on Laravel's Octane error responses.
+- Use the payload UUID for synchronous jobs without a driver job ID, and clear failed-job associations at queue loop boundaries.
+- Test real Octane workers and two persistent FrankenPHP container replicas, including concurrent clients, error recovery and worker reload.
+- Document Kubernetes collection, cross-service propagation boundaries, and Octane's stderr/native-output requirements.
+
 ## 0.1.3
 
 - Redact hyphenated and underscored key variants consistently in messages, including escaped and unclosed quoted values.

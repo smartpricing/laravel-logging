@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Smartness\LaravelLogging;
 
+use Illuminate\Container\Container;
 use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Log\Logger;
 use Illuminate\Log\LogManager;
@@ -13,11 +14,18 @@ use Illuminate\Queue\Events\JobProcessed;
 use Illuminate\Queue\Events\JobProcessing;
 use Illuminate\Queue\Events\Looping;
 use Illuminate\Support\ServiceProvider;
+use Laravel\Octane\Events\RequestHandled;
+use Laravel\Octane\Events\RequestReceived;
+use Laravel\Octane\Events\TaskReceived;
+use Laravel\Octane\Events\TickReceived;
+use Laravel\Octane\Events\WorkerStarting;
 use LogicException;
 use Monolog\Handler\StreamHandler;
 use Smartness\LaravelLogging\Context\JobContext;
+use Smartness\LaravelLogging\Context\RequestContext;
 use Smartness\LaravelLogging\Context\TraceContext;
 use Smartness\LaravelLogging\Http\CorrelateRequest;
+use Smartness\LaravelLogging\Listeners\PrepareOctaneContext;
 use Smartness\LaravelLogging\Support\Configuration;
 
 final class StructuredLoggingServiceProvider extends ServiceProvider
@@ -25,7 +33,7 @@ final class StructuredLoggingServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->mergeConfigFrom(__DIR__.'/../config/structured-logging.php', 'structured-logging');
-        $this->app->singleton(JobContext::class);
+        $this->app->scoped(JobContext::class);
         $this->app->singleton(TraceContext::class);
     }
 
@@ -67,26 +75,37 @@ final class StructuredLoggingServiceProvider extends ServiceProvider
                 $manager->forgetChannel($name);
             }
         }
+        $events = $this->app['events'];
+        if (class_exists(WorkerStarting::class)) {
+            $events->listen([
+                WorkerStarting::class, RequestReceived::class, TaskReceived::class, TickReceived::class,
+            ], PrepareOctaneContext::class);
+        }
         if ($this->app['config']['structured-logging.request_context']) {
             $this->callAfterResolving(Kernel::class, static function ($kernel): void {
                 $kernel->prependMiddleware(CorrelateRequest::class);
             });
+            if (class_exists(RequestHandled::class)) {
+                // Also covers responses rendered by Laravel's exception handler.
+                $events->listen(RequestHandled::class, static function ($event): void {
+                    $event->response->headers->set('X-Request-Id', RequestContext::id($event->request));
+                });
+            }
         }
 
         if (! $this->app['config']['structured-logging.job_context']) {
             return;
         }
-        $events = $this->app['events'];
-        $events->listen(JobProcessing::class, function ($event): void {
-            $this->app->make(JobContext::class)->begin($event->job, $event->connectionName);
+        $events->listen(JobProcessing::class, static function ($event): void {
+            Container::getInstance()->make(JobContext::class)->begin($event->job, $event->connectionName);
         });
         foreach ([JobProcessed::class, JobExceptionOccurred::class, JobFailed::class] as $eventClass) {
-            $events->listen($eventClass, function ($event): void {
-                $this->app->make(JobContext::class)->end($event->job, $event->exception ?? null);
+            $events->listen($eventClass, static function ($event): void {
+                Container::getInstance()->make(JobContext::class)->end($event->job, $event->exception ?? null);
             });
         }
-        $events->listen(Looping::class, function (): void {
-            $this->app->make(JobContext::class)->reset();
+        $events->listen(Looping::class, static function (): void {
+            Container::getInstance()->make(JobContext::class)->reset();
         });
     }
 }

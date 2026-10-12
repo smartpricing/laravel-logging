@@ -71,3 +71,5 @@ jobs:
       - name: Verify actual ingestion with Alloy and Loki
         if: matrix.laravel == '13'
         run: bash tests/smoke/loki.sh "$RUNNER_TEMP/logging-app"
+      - name: Verify Octane with two persistent container replicas
+        run: bash tests/octane/run.sh "$RUNNER_TEMP/logging-app"

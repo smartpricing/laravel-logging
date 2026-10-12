@@ -25,7 +25,7 @@ final class ConfigureJsonLogging
         }
         $options = $this->app['config']['structured-logging'];
         $formatter = new StructuredJsonFormatter($options, $component);
-        $processor = new ContextProcessor($this->app);
+        $processor = new ContextProcessor;
         $handlers = [];
         foreach ($monolog->getHandlers() as $handler) {
             // Preserve non-stream transports, NullHandler and externally managed handlers.

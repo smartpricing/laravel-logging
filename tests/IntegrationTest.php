@@ -261,6 +261,9 @@ final class IntegrationTest extends TestCase
         Log::info('unrelated');
         self::assertSame('failed-job', $this->entries()[0]['job_id']);
         self::assertArrayNotHasKey('job_id', $this->entries()[1]);
+        $this->app['events']->dispatch(new Looping('sync', 'test'));
+        Log::error('old exception in a new loop', ['exception' => $exception]);
+        self::assertArrayNotHasKey('job_id', $this->entries()[2]);
     }
 
     public function test_unknown_or_missing_trace_sdk_does_not_block_logging(): void
