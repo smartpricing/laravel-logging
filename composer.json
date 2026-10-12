@@ -1,6 +1,12 @@
 {
     "name": "smartness/laravel-logging",
     "description": "Structured JSON logging for Laravel with bounded normalization, redaction and request/job correlation",
+    "keywords": ["laravel", "logging", "monolog", "json", "loki", "structured-logging"],
+    "homepage": "https://github.com/smartpricing/laravel-logging",
+    "support": {
+        "issues": "https://github.com/smartpricing/laravel-logging/issues",
+        "source": "https://github.com/smartpricing/laravel-logging"
+    },
     "type": "library",
     "license": "proprietary",
     "require": {

@@ -1,28 +1,26 @@
 # Smartness Laravel Logging
 
-Structured JSON logs for Laravel 11 and 12 using the native Laravel LogManager
-and Monolog 3. Each event is a single JSON line suitable for collection into
-Grafana Loki. Requires PHP 8.2 or later. The package does not call Loki directly.
+General-purpose structured JSON logging for Laravel 11 and 12 using the native
+Laravel LogManager and Monolog 3. Requires PHP 8.2 or later. Use it in HTTP APIs,
+web applications, Artisan commands and queue workers, without application-specific
+models, services or infrastructure.
+
+Each event is a single JSON line (NDJSON), suitable for Grafana Loki or other
+collectors that ingest JSON logs. The package writes to your existing Laravel
+stream channels; it does not send logs to a backend or require Loki credentials.
 
 Installation is opt-in: installing the package alone does not change channels,
 replace the `log` service or enable collection of request bodies.
 
 ## Install
 
-Add the private repository and package to your application's `composer.json`:
+Install from [Packagist](https://packagist.org/packages/smartness/laravel-logging):
 
-```json
-{
-  "repositories": [
-    {"type": "vcs", "url": "https://github.com/smartpricing/laravel-logging.git"}
-  ],
-  "require": {"smartness/laravel-logging": "^0.1.0"}
-}
+```shell
+composer require smartness/laravel-logging:^0.1
 ```
 
-Run `composer update smartness/laravel-logging`. Private repository access is
-required locally and in CI; supply Composer credentials through your existing
-secret management. Do not commit credentials to this repository.
+No custom Composer repository or GitHub credentials are needed.
 
 Laravel discovers the service provider automatically. Optionally publish config:
 
@@ -54,15 +52,47 @@ Clear/rebuild Laravel's configuration cache and restart persistent workers when
 changing configuration. Enable in staging first and check the collector and
 existing dashboards before production rollout.
 
+## Configure for your application
+
+All package options live in `config/structured-logging.php`. Application-specific
+channel definitions and routing stay in Laravel's `config/logging.php`.
+
+| Option | Default | Purpose |
+| --- | --- | --- |
+| `enabled` | `false` | Opt in with `STRUCTURED_LOGGING_ENABLED=true` |
+| `service` | `APP_NAME`, or `laravel` | Identify the application; override with `STRUCTURED_LOGGING_SERVICE` |
+| `environment` | `APP_ENV`, or `production` | Identify the deployment environment |
+| `channels` | `single`, `daily`, `stdout`, `stderr` | Select existing stream channels, or use `['*']` |
+| `request_context` | `true` | Add HTTP request correlation and response headers |
+| `job_context` | `true` | Add correlation through Laravel queue events |
+| `trace_context` | `true` | Include an active OpenTelemetry span when available |
+| `fallback_path` | `php://stderr` | Fallback stream; set to `null` to propagate primary write failures |
+
+Channels that do not exist are skipped. For container logging, define `stdout`
+in `config/logging.php` if your application does not already have it:
+
+```php
+'stdout' => [
+    'driver' => 'monolog',
+    'handler' => \Monolog\Handler\StreamHandler::class,
+    'with' => ['stream' => 'php://stdout'],
+    'level' => env('LOG_LEVEL', 'debug'),
+],
+```
+
+Then set `LOG_CHANNEL=stdout`. File-based applications can keep their existing
+`single` or `daily` channel. HTTP, queue and trace enrichment can each be disabled
+independently; CLI logging does not require an HTTP request or a queue connection.
+
 ## Use Laravel logging
 
 ```php
 use Illuminate\Support\Facades\Log;
 
-Log::info('Reservation updated', ['reservation_id' => 123]);
+Log::info('Import completed', ['batch_id' => 123]);
 Log::channel('payments')->warning('Payment retry scheduled', ['attempt' => 2]);
 Log::error('Payment failed', ['exception' => $exception]);
-Log::withContext(['company_id' => 456])->info('Import started');
+Log::withContext(['tenant_id' => 456])->info('Import started');
 ```
 
 Use context for application-specific identifiers and timer durations. There is no
@@ -73,7 +103,7 @@ lifecycle of context it adds itself with `withContext()` or `shareContext()`.
 ## JSON contract
 
 ```json
-{"schema_version":1,"timestamp":"2026-10-12T10:30:00.000000Z","level":"info","message":"Reservation updated","service":"pms","environment":"production","component":"stdout","process_id":42,"hostname":"pms-pod","context":{"reservation_id":123},"request_id":"abc123"}
+{"schema_version":1,"timestamp":"2026-10-12T10:30:00.000000Z","level":"info","message":"Import completed","service":"my-service","environment":"production","component":"stdout","process_id":42,"hostname":"app-worker","context":{"batch_id":123},"job_id":"job-456"}
 ```
 
 - Timestamps are converted to UTC; one event occupies exactly one physical line.
@@ -137,24 +167,22 @@ sequential workers and nested synchronous jobs. Octane/Swoole coroutine concurre
 is not currently certified. Queue integrations must emit Laravel job lifecycle
 events to receive job metadata.
 
-## Migration from the PMS logger
+## Adopt in an existing Laravel application
 
-The existing `Logging\Support\LogManager` overrides Laravel's `log` binding. Disable
-that override before enabling this package; an enabled package rejects non-native
-managers instead of silently competing with them. The old library can remain
-installed for rollback.
+If another library replaces Laravel's `log` binding, restore the native
+`Illuminate\Log\LogManager` before enabling this package. Non-native managers
+are rejected with an explicit configuration error. Keep any application-specific
+migration switches and rollback procedure in the consuming application.
 
-The PMS adapter selects `legacy`, `structured` or `laravel` through
-`LOGGING_IMPLEMENTATION`. Its default preserves the existing
-`JSON_LOGGING_ENABLED` behavior. Switching to `structured` enables this package
-and disables the legacy override through application configuration. No code in
-the legacy implementation needs to change.
+Select the stream channels to convert and retain their existing levels and
+destinations. Validate timestamp parsing, component names, context fields, alerts
+and byte volume with your collector before rollout. The output schema is defined
+above; this package does not translate an application's previous log schema.
 
-Keep existing `context.profile.traceID` links while adding top-level `trace_id`.
-Validate labels, timestamp parsing, component names, alerts and byte volume before
-switching. Request payloads and partially visible credentials intentionally do
-not carry over into the new output. Restore the previous implementation setting,
-rebuild config cache and restart workers for rollback.
+To disable the formatter, set `STRUCTURED_LOGGING_ENABLED=false`, rebuild the
+configuration cache and restart persistent workers. Laravel resumes the normal
+formatting configured for each channel. Restoring a previous custom logger, if
+present, is a separate application configuration change.
 
 ## Development
 

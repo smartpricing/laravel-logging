@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.2
+
+- Document public installation from Packagist and configuration for any Laravel application.
+- Replace application-specific migration notes and examples with generic adoption guidance.
+- Add package discovery keywords and public support links; runtime behavior is unchanged.
+
 ## 0.1.1
 
 - Use the organization's approved PHP setup action in the compatibility matrix.
