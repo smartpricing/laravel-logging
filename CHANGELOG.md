@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1
+
+- Use the organization's approved PHP setup action in the compatibility matrix.
+
 ## 0.1.0
 
 - Opt-in Laravel 11/12 integration using the native log manager and Monolog streams.
