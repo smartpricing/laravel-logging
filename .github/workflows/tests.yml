@@ -1,0 +1,39 @@
+name: Tests
+
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.2', '8.3', '8.4']
+        laravel: ['11', '12']
+        include:
+          - laravel: '11'
+            testbench: '9'
+          - laravel: '12'
+            testbench: '10'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: none
+          tools: composer:v2
+      - name: Install compatibility dependencies
+        env:
+          LARAVEL: ${{ matrix.laravel }}
+          TESTBENCH: ${{ matrix.testbench }}
+        run: |
+          # Laravel 11 is tested for existing consumers. Allow its advisories only
+          # in this isolated compatibility job; do not change consumer policies.
+          extra=()
+          if [ "$LARAVEL" = "11" ]; then extra+=(--no-security-blocking); fi
+          composer update --with="laravel/framework:^$LARAVEL.0" --with="orchestra/testbench:^$TESTBENCH.0" --no-interaction --prefer-dist --no-progress "${extra[@]}"
+      - run: composer validate --strict
+      - run: composer test

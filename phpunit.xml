@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit bootstrap="vendor/autoload.php" colors="true" cacheDirectory=".phpunit.cache">
+    <testsuites>
+        <testsuite name="Logging"><directory>tests</directory></testsuite>
+    </testsuites>
+    <php>
+        <env name="APP_ENV" value="testing"/>
+        <env name="OTEL_PHP_DISABLED_INSTRUMENTATIONS" value="all"/>
+    </php>
+</phpunit>
